@@ -35,6 +35,27 @@ app.set("io", io);
 app.use(cors({ origin: allowedOrigin }));
 app.use(express.json({ limit: "1mb" }));
 
+// Connect to MongoDB before handling API requests
+app.use("/api", async (req, res, next) => {
+  try {
+    if (!process.env.MONGODB_URI) {
+      throw new Error("MONGODB_URI is missing");
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      await mongoose.connect(process.env.MONGODB_URI);
+    }
+
+    next();
+  } catch (error) {
+    console.error("Database connection failed:", error.message);
+
+    res.status(503).json({
+      message: "Database connection unavailable",
+    });
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({
@@ -124,34 +145,28 @@ io.on("connection", (socket) => {
   });
 });
 
-// Start server
+// Local development server
 async function start() {
-  // Log only whether variables exist; never print secrets.
-  console.log("Environment variable check:", {
-    MONGODB_URI: Boolean(process.env.MONGODB_URI),
-    JWT_SECRET: Boolean(process.env.JWT_SECRET),
-    CLIENT_URL: Boolean(process.env.CLIENT_URL),
-    PORT: Boolean(process.env.PORT),
-  });
-
   if (!process.env.MONGODB_URI || !process.env.JWT_SECRET) {
-    throw new Error(
-      "Required environment variables are missing. " +
-      "Check MONGODB_URI and JWT_SECRET in Render Environment settings."
-    );
+    throw new Error("Missing required environment variables");
   }
 
-  // Connect to MongoDB before accepting requests.
   await mongoose.connect(process.env.MONGODB_URI);
 
-  console.log("MongoDB connected successfully.");
+  console.log("MongoDB connected successfully");
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`Thinking Together API running on port ${port}`);
   });
 }
 
-start().catch((error) => {
-  console.error("Startup failed:", error.message);
-  process.exit(1);
-});
+// Run HTTP server locally, not inside Vercel Functions
+if (!process.env.VERCEL) {
+  start().catch((error) => {
+    console.error("Startup failed:", error.message);
+    process.exit(1);
+  });
+}
+
+// Export Express app for Vercel
+export default app;
